@@ -22,17 +22,19 @@ func init() {
 }
 
 func main() {
-	router := mux.NewRouter()
-	workManager := NewWorkManager(MSG_BUFFER_SIZE)
-	workManager.AttachSubscriber(subscriberFactory("stdout"))
+	// Setup the engine
+	workEngine := NewWorkEngine(MSG_BUFFER_SIZE)
+	workEngine.AttachSubscriber(subscriberFactory("stdout"))
 
-	configureApi(router, workManager)
+	// Setup the web server sitting in front of it
+	router := mux.NewRouter()
+	configureApi(router, workEngine)
 	runServer(router, SERVER_PORT)
 }
 
 ////////////////////////////////////////////////////////////
 // Example stdout subscriber to illustrate how decoupled the
-// subscribers actually are from the worker manager, and how
+// subscribers actually are from the work engine, and how
 // they can perform arbirary processing with the work messages
 // as long as the IWorkSubscriber interface is implemented
 ////////////////////////////////////////////////////////////
@@ -66,18 +68,18 @@ func (s *StdoutSubscriber) Subscribe(msgBuffer <-chan string) {
 ////////////////////////////////////////////////////////////
 // API Handlers
 ////////////////////////////////////////////////////////////
-func RunHandler(w http.ResponseWriter, req *http.Request, wm *WorkManager) {
+func RunHandler(w http.ResponseWriter, req *http.Request, engine *WorkEngine) {
 	res := make(map[string]string)
-	res["job_token"] = wm.StartNewJob(NewFooMachine())
+	res["job_token"] = engine.StartNewJob(NewFooMachine())
 	json.NewEncoder(w).Encode(res)
 }
 
 ////////////////////////////////////////////////////////////
 // Server configuration
 ////////////////////////////////////////////////////////////
-func configureApi(router *mux.Router, workManager *WorkManager) {
+func configureApi(router *mux.Router, workEngine *WorkEngine) {
 	router.HandleFunc(
-		"/run", createHandler(workManager, RunHandler),
+		"/run", createHandler(workEngine, RunHandler),
 	).Methods("POST")
 }
 
@@ -104,13 +106,13 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
 // Util
 ////////////////////////////////////////////////////////////
 // Want ability to create route handlers that are conformant with vanilla
-// gorilla handlers, but have an injected work manager reference via closure
+// gorilla handlers, but have an injected work engine reference via closure
 // Desire is to favor dependency injection over package level globals!
 type GorillaRouteHandler func(http.ResponseWriter, *http.Request)
-type InjectedRouteHandler func(http.ResponseWriter, *http.Request, *WorkManager)
+type InjectedRouteHandler func(http.ResponseWriter, *http.Request, *WorkEngine)
 
-func createHandler(wm *WorkManager, r InjectedRouteHandler) GorillaRouteHandler {
+func createHandler(engine *WorkEngine, r InjectedRouteHandler) GorillaRouteHandler {
 	return func(writer http.ResponseWriter, request *http.Request) {
-		r(writer, request, wm)
+		r(writer, request, engine)
 	}
 }

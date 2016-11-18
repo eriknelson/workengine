@@ -12,22 +12,22 @@ type IWorkSubscriber interface {
 	Subscribe(msgBuffer <-chan string)
 }
 
-type WorkManager struct {
+type WorkEngine struct {
 	msgBuffer chan string
 }
 
-func NewWorkManager(bufferSize int) *WorkManager {
-	return &WorkManager{
+func NewWorkEngine(bufferSize int) *WorkEngine {
+	return &WorkEngine{
 		msgBuffer: make(chan string, bufferSize),
 	}
 }
 
-func (m *WorkManager) StartNewJob(work IWork) string {
+func (engine *WorkEngine) StartNewJob(work IWork) string {
 	jobToken, _ := shortid.Generate()
-	go work.Run(jobToken, m.msgBuffer)
+	go work.Run(jobToken, engine.msgBuffer)
 	return jobToken
 }
 
-func (m *WorkManager) AttachSubscriber(subscriber IWorkSubscriber) {
-	subscriber.Subscribe(m.msgBuffer)
+func (engine *WorkEngine) AttachSubscriber(subscriber IWorkSubscriber) {
+	subscriber.Subscribe(engine.msgBuffer)
 }
