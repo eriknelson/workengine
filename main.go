@@ -24,17 +24,37 @@ func init() {
 func main() {
 	router := mux.NewRouter()
 	workManager := NewWorkManager(MSG_BUFFER_SIZE)
-	drainBuffer(workManager.msgBuffer)
+	workManager.AttachSubscriber(subscriberFactory("stdout"))
 
 	configureApi(router, workManager)
 	runServer(router, SERVER_PORT)
 }
 
-func drainBuffer(msgBuffer <-chan string) {
+////////////////////////////////////////////////////////////
+// Example stdout subscriber to illustrate how decoupled the
+// subscribers actually are from the worker manager, and how
+// they can perform arbirary processing with the work messages
+// as long as the IWorkSubscriber interface is implemented
+////////////////////////////////////////////////////////////
+func subscriberFactory(sub string) IWorkSubscriber {
+	// Totally unncessary, but cool nonetheless
+	if sub == "socket" {
+		panic("SOCKETSUBSCRIBER NOT YET IMPLEMENTED")
+	} else {
+		return &StdoutSubscriber{}
+	}
+}
+
+type StdoutSubscriber struct {
+	msgBuffer <-chan string
+}
+
+func (s *StdoutSubscriber) Subscribe(msgBuffer <-chan string) {
 	// Always drain the buffer if there's a message waiting.
 	// Here we're just forwarding to stdout, but of course, the message
 	// destination could be anything (ultimate websockets!)
 	// NOTE: DON'T FORGET TO GOROUTINE THIS, OR WILL YOU CHOKE THE MAIN PROCESSOR
+	s.msgBuffer = msgBuffer
 	go func() {
 		for {
 			msg := <-msgBuffer
