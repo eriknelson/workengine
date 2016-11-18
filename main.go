@@ -1,83 +1,97 @@
 package main
 
 import (
-	//"encoding/json"
+	"encoding/json"
 	"fmt"
-	//"github.com/gorilla/handlers"
-	//"github.com/gorilla/mux"
-	//"html/template"
-	//"log"
+	"github.com/gorilla/handlers"
+	"github.com/gorilla/mux"
+	"html/template"
+	"log"
 	"math/rand"
-	//"net/http"
+	"net/http"
 	"runtime"
-	"strings"
 	"time"
 )
 
-////////////////////////////////////////////////////////////
-// PARAM CONFIG
-const WORKER_COUNT = 4
-const MAX_PROC_COUNT = 4
-const CLOCK_PERIOD = 500
-
-////////////////////////////////////////////////////////////
+const MSG_BUFFER_SIZE = 10
+const SERVER_PORT = 3000
 
 func init() {
-	runtime.GOMAXPROCS(MAX_PROC_COUNT)
+	runtime.GOMAXPROCS(runtime.NumCPU()) // TURBOBOOST!
 	rand.Seed(time.Now().UnixNano())
 }
 
 func main() {
-	msgBuffer := make(chan string)
+	router := mux.NewRouter()
+	workManager := NewWorkManager(MSG_BUFFER_SIZE)
+	drainBuffer(workManager.msgBuffer)
 
-	for i := 0; i < WORKER_COUNT; i++ {
-		NewFooMachine(msgBuffer).Run()
-	}
-
-	finishedCount := 0
-	// TODO: Simulating a MessageConsumer pulling worker messages off the queue
-	// and processing them (we're simply writing to stdout)
-	for {
-		msg := <-msgBuffer
-		fmt.Printf(msg)
-
-		if strings.Contains(msg, "Finished") {
-			finishedCount++
-			if finishedCount == WORKER_COUNT {
-				break
-			}
-		}
-	}
-
-	fmt.Println("FIN")
+	configureApi(router, workManager)
+	runServer(router, SERVER_PORT)
 }
 
-//r := mux.NewRouter()
-//r.HandleFunc("/run", RunHandler).Methods("POST")
+func drainBuffer(msgBuffer <-chan string) {
+	// Always drain the buffer if there's a message waiting.
+	// Here we're just forwarding to stdout, but of course, the message
+	// destination could be anything (ultimate websockets!)
+	// NOTE: DON'T FORGET TO GOROUTINE THIS, OR WILL YOU CHOKE THE MAIN PROCESSOR
+	go func() {
+		for {
+			msg := <-msgBuffer
+			fmt.Printf(msg)
+		}
+	}()
+}
 
-//fs := http.StripPrefix("/static/", http.FileServer(http.Dir("./static")))
-//r.PathPrefix("/static/").Handler(fs)
-//r.HandleFunc("/", IndexHandler)
+////////////////////////////////////////////////////////////
+// API Handlers
+////////////////////////////////////////////////////////////
+func RunHandler(w http.ResponseWriter, req *http.Request, wm *WorkManager) {
+	res := make(map[string]string)
+	res["job_token"] = wm.StartNewJob(NewFooMachine())
+	//res["job_token"] = "helloworld!"
+	json.NewEncoder(w).Encode(res) // Success, fail?
+}
 
-//fmt.Println("Listening on localhost:3000")
-//allowedHeaders := handlers.AllowedHeaders([]string{"Content-Type"})
-//log.Fatal(http.ListenAndServe(":3000", handlers.CORS(
-//allowedHeaders,
-//)(r)))
+////////////////////////////////////////////////////////////
+// Server configuration
+////////////////////////////////////////////////////////////
+func configureApi(router *mux.Router, workManager *WorkManager) {
+	router.HandleFunc(
+		"/run", createHandler(workManager, RunHandler),
+	).Methods("POST")
+}
 
-//func RunHandler(w http.ResponseWriter, r *http.Request) {
-//body := make(map[string]string)
-//json.NewDecoder(r.Body).Decode(&body)
-//identifier := body["id"]
+// Sets up web server-y things like static and template handlers
+func runServer(router *mux.Router, port int) {
+	fs := http.StripPrefix("/static/", http.FileServer(http.Dir("./static")))
+	router.PathPrefix("/static/").Handler(fs)
+	router.HandleFunc("/", IndexHandler)
 
-//runMachine(identifier)
+	fmt.Println(fmt.Sprintf("Listening on localhost:%d", port))
+	allowedHeaders := handlers.AllowedHeaders([]string{"Content-Type"})
+	portStr := fmt.Sprintf(":%d", port)
+	log.Fatal(http.ListenAndServe(portStr, handlers.CORS(
+		allowedHeaders,
+	)(router)))
+}
 
-//resMap := map[string]string{"foo": "bar"}
-//json.NewEncoder(w).Encode(resMap)
-//}
+func IndexHandler(w http.ResponseWriter, r *http.Request) {
+	t, _ := template.ParseFiles("static/index.html")
+	t.Execute(w, nil)
+}
 
-//func IndexHandler(w http.ResponseWriter, r *http.Request) {
+////////////////////////////////////////////////////////////
+// Util
+////////////////////////////////////////////////////////////
+// Want ability to create route handlers that are conformant with vanilla
+// gorilla handlers, but have an injected work manager reference via closure
+// Desire is to favor dependency injection over package level globals!
+type GorillaRouteHandler func(http.ResponseWriter, *http.Request)
+type InjectedRouteHandler func(http.ResponseWriter, *http.Request, *WorkManager)
 
-//t, _ := template.ParseFiles("static/index.html")
-//t.Execute(w, nil)
-//}
+func createHandler(wm *WorkManager, r InjectedRouteHandler) GorillaRouteHandler {
+	return func(writer http.ResponseWriter, request *http.Request) {
+		r(writer, request, wm)
+	}
+}

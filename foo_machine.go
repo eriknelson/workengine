@@ -6,11 +6,7 @@ import (
 	"time"
 )
 
-var FOO_ID int
-
-func init() {
-	FOO_ID = 0
-}
+const CLOCK_PERIOD = 500
 
 const (
 	FOO_INITIALIZING = iota
@@ -20,7 +16,7 @@ const (
 )
 
 type FooMachine struct {
-	identifier    int
+	jobToken      string
 	stateGraph    map[int]int
 	stateText     map[int]string
 	currentState  int
@@ -33,7 +29,7 @@ type FooMachine struct {
 	msgBuffer     chan<- string
 }
 
-func NewFooMachine(msgBuffer chan<- string) *FooMachine {
+func NewFooMachine() *FooMachine {
 	stateGraph := map[int]int{
 		FOO_INITIALIZING: FOO_RUNNING,
 		FOO_RUNNING:      FOO_FINALIZING,
@@ -57,15 +53,11 @@ func NewFooMachine(msgBuffer chan<- string) *FooMachine {
 	stateWeights[FOO_RUNNING] = longWeight
 	stateWeights[FOO_FINALIZING] = shortWeight
 
-	FOO_ID++
-
 	return &FooMachine{
-		identifier:   FOO_ID,
 		stateWeights: stateWeights,
 		stateGraph:   stateGraph,
 		stateText:    stateText,
 		totalWeight:  totalWeight,
-		msgBuffer:    msgBuffer,
 	}
 }
 
@@ -84,8 +76,8 @@ func (m *FooMachine) tick() {
 }
 
 func (m *FooMachine) report() {
-	////////////////////////////////////////////////////////////
-	// TOOD: Fix edge case for progress
+	//////////////////////////////////////////////////////////
+	//TOOD: Fix edge case for progress
 	var stateProgress, totalProgress float32
 	if m.currentState == FOO_FINISHED {
 		stateProgress = 1.00
@@ -94,33 +86,34 @@ func (m *FooMachine) report() {
 		stateProgress = m.stateProgress
 		totalProgress = m.totalProgress
 	}
-	////////////////////////////////////////////////////////////
+	//////////////////////////////////////////////////////////
 
 	m.emit(
-		fmt.Sprintf("%d -> State: %s, State Progress: %.2f, Total Progress: %.2f \n",
-			m.identifier, m.stateText[m.currentState], stateProgress, totalProgress),
+		fmt.Sprintf("State: %s, State Progress: %.2f, Total Progress: %.2f \n",
+			m.stateText[m.currentState], stateProgress, totalProgress),
 	)
 }
 
-func (m *FooMachine) Run() {
-	go func() {
-		m.emit(fmt.Sprintf("total weight -> %d\n", m.totalWeight))
-		m.emit(fmt.Sprintln(m.stateWeights))
+func (m *FooMachine) Run(jobToken string, msgBuffer chan<- string) {
+	m.msgBuffer = msgBuffer
+	m.jobToken = jobToken
 
-		for {
-			if m.currentState == FOO_FINISHED {
-				break
-			}
+	m.emit(fmt.Sprintf("total weight -> %d\n", m.totalWeight))
+	m.emit(fmt.Sprintln(m.stateWeights))
 
-			m.tick()
-			m.report()
-			time.Sleep(time.Millisecond * CLOCK_PERIOD)
+	for {
+		if m.currentState == FOO_FINISHED {
+			break
 		}
-	}()
+
+		m.tick()
+		m.report()
+		time.Sleep(time.Millisecond * CLOCK_PERIOD)
+	}
 }
 
 func (m *FooMachine) emit(msg string) {
-	m.msgBuffer <- msg
+	m.msgBuffer <- fmt.Sprintf("[%s] %s", m.jobToken, msg)
 }
 
 func random(min, max int) int {
