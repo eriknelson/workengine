@@ -49,8 +49,7 @@ func drainBuffer(msgBuffer <-chan string) {
 func RunHandler(w http.ResponseWriter, req *http.Request, wm *WorkManager) {
 	res := make(map[string]string)
 	res["job_token"] = wm.StartNewJob(NewFooMachine())
-	//res["job_token"] = "helloworld!"
-	json.NewEncoder(w).Encode(res) // Success, fail?
+	json.NewEncoder(w).Encode(res)
 }
 
 ////////////////////////////////////////////////////////////
