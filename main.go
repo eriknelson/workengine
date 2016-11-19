@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 	"html/template"
 	"log"
@@ -22,14 +21,14 @@ func init() {
 }
 
 func main() {
-	// Setup the engine
-	workEngine := NewWorkEngine(MSG_BUFFER_SIZE)
-	workEngine.AttachSubscriber(subscriberFactory("stdout"))
+	subscriber := subscriberFactory("socket").(*SocketWorkSubscriber)
 
-	// Setup the web server sitting in front of it
+	workEngine := NewWorkEngine(MSG_BUFFER_SIZE)
+	workEngine.AttachSubscriber(subscriber)
+
 	router := mux.NewRouter()
 	configureApi(router, workEngine)
-	runServer(router, SERVER_PORT)
+	runServer(router, subscriber, SERVER_PORT)
 }
 
 ////////////////////////////////////////////////////////////
@@ -41,17 +40,17 @@ func main() {
 func subscriberFactory(sub string) IWorkSubscriber {
 	// Totally unncessary, but cool nonetheless
 	if sub == "socket" {
-		panic("SOCKETSUBSCRIBER NOT YET IMPLEMENTED")
+		return NewSocketWorkSubscriber()
 	} else {
-		return &StdoutSubscriber{}
+		return &StdoutWorkSubscriber{}
 	}
 }
 
-type StdoutSubscriber struct {
+type StdoutWorkSubscriber struct {
 	msgBuffer <-chan string
 }
 
-func (s *StdoutSubscriber) Subscribe(msgBuffer <-chan string) {
+func (s *StdoutWorkSubscriber) Subscribe(msgBuffer <-chan string) {
 	// Always drain the buffer if there's a message waiting.
 	// Here we're just forwarding to stdout, but of course, the message
 	// destination could be anything (ultimate websockets!)
@@ -78,23 +77,29 @@ func RunHandler(w http.ResponseWriter, req *http.Request, engine *WorkEngine) {
 // Server configuration
 ////////////////////////////////////////////////////////////
 func configureApi(router *mux.Router, workEngine *WorkEngine) {
+	// NOTE: These paths must absolutely match the same paths that
+	// the router is mounted at!
+	// Ex: http.Handle("/api/", r), then anything on r under this space
+	// must be `/api/$PATH`
 	router.HandleFunc(
-		"/run", createHandler(workEngine, RunHandler),
+		"/api/run", createHandler(workEngine, RunHandler),
 	).Methods("POST")
 }
 
 // Sets up web server-y things like static and template handlers
-func runServer(router *mux.Router, port int) {
-	fs := http.StripPrefix("/static/", http.FileServer(http.Dir("./static")))
-	router.PathPrefix("/static/").Handler(fs)
-	router.HandleFunc("/", IndexHandler)
+func runServer(
+	router *mux.Router,
+	sws *SocketWorkSubscriber,
+	port int,
+) {
+	http.Handle("/socket.io/", sws.server) // Mount the socket.io server
+	http.Handle("/static/", http.FileServer(http.Dir("./")))
+	http.Handle("/api/", router)
+	http.HandleFunc("/", IndexHandler) // Mount the lone template server
 
-	fmt.Println(fmt.Sprintf("Listening on localhost:%d", port))
-	allowedHeaders := handlers.AllowedHeaders([]string{"Content-Type"})
 	portStr := fmt.Sprintf(":%d", port)
-	log.Fatal(http.ListenAndServe(portStr, handlers.CORS(
-		allowedHeaders,
-	)(router)))
+	fmt.Println(fmt.Sprintf("Listening on localhost:%d", port))
+	log.Fatal(http.ListenAndServe(portStr, nil))
 }
 
 func IndexHandler(w http.ResponseWriter, r *http.Request) {
