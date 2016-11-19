@@ -4,16 +4,25 @@ $(function() {
   main()
 });
 
-function main() {
-  console.log('Hello wworld!');
-  axios.post(genUrl('/run'), {
-    id: uuid.v4()
-  }).then(res => {
-    console.log('got response!');
-    console.log(res.data);
-  });
+function main(socket) {
+  socket = io();
+
+  socket.on('connect', function() {
+    console.log('Connected')
+  })
+
+  socket.on('firehose', function(msg) {
+    writeToViewer(msg);
+  })
 }
 
 function genUrl(path) {
   return 'http://localhost:3000' + path;
+}
+
+function writeToViewer(msg) {
+  $('.log-viewer').append('<div>' + msg + '</div>');
+  $('.log-viewer').animate({
+    scrollTop: $('.log-viewer').prop("scrollHeight")
+  }, 0);
 }
