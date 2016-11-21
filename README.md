@@ -11,4 +11,4 @@ Start up the server:
 
 Fire away and watch the `FooMachines` work!:
 
-`for i in {1..10}; do curl -X POST http://localhost:3000/run; done`
+`for i in {1..10}; do curl -X POST http://localhost:3000/api/run; done`
